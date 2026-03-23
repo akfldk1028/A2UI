@@ -89,6 +89,7 @@ export class A2UIClient {
         role: "user",
         parts: parts,
         kind: "message",
+        extensions: ["https://a2ui.org/a2a-extension/a2ui/v0.8"],
       },
     });
 

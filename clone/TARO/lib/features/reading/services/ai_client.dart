@@ -77,7 +77,9 @@ class EdgeFunctionAiClient implements AiClient {
     // Parse SSE stream: lines starting with "data: "
     final buffer = StringBuffer();
 
-    await for (final chunk in response.stream.transform(utf8.decoder)) {
+    await for (final chunk in response.stream
+        .transform(utf8.decoder)
+        .timeout(const Duration(seconds: 60))) {
       if (_isCancelled) return;
       buffer.write(chunk);
       final raw = buffer.toString();

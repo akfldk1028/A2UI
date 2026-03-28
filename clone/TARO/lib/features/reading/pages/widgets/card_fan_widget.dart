@@ -8,7 +8,6 @@ import '../../../../models/tarot_card_data.dart';
 class CardFanWidget extends StatelessWidget {
   const CardFanWidget({
     super.key,
-    required this.deck,
     required this.shuffledCards,
     required this.cardCount,
     required this.selectedIndices,
@@ -20,7 +19,6 @@ class CardFanWidget extends StatelessWidget {
     required this.isMobile,
   });
 
-  final TarotDeck? deck;
   final List<TarotCardData> shuffledCards;
   final int cardCount;
   final List<int> selectedIndices;

@@ -125,7 +125,9 @@ class TarotSession extends ChangeNotifier {
     SpreadType spread,
   ) async {
     _currentSpread = spread;
-    _allDrawnCards.addAll(cards);
+    _allDrawnCards
+      ..clear()
+      ..addAll(cards);
     _revealedCount = 0;
     _phase = ConsultationPhase.reading;
     notifyListeners();

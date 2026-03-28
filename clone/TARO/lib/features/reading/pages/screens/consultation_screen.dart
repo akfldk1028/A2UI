@@ -30,6 +30,13 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
   final ScrollController _scrollController = ScrollController();
   int _lastMessageCount = 0;
 
+  void _checkAutoScroll(int currentCount) {
+    if (currentCount > _lastMessageCount) {
+      _lastMessageCount = currentCount;
+      _scrollToBottom();
+    }
+  }
+
   // Card picking
   TarotDeck? _deck;
   List<TarotCardData> _shuffled = [];
@@ -85,8 +92,9 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
     });
     if (_pickingDone && !_cardsSubmitted) {
       _cardsSubmitted = true;
+      final session = ref.read(tarotSessionProvider);
       Future.delayed(const Duration(milliseconds: 800), () {
-        if (mounted) ref.read(tarotSessionProvider).handleCardsDrawn(_drawnCards, widget.spreadType);
+        if (mounted) session.handleCardsDrawn(_drawnCards, widget.spreadType);
       });
     }
   }
@@ -100,6 +108,7 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(tarotSessionProvider);
+    _checkAutoScroll(session.messages.length);
     final theme = Theme.of(context);
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 500;
@@ -133,7 +142,6 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
               ] else if (phase == ConsultationPhase.picking) ...[
                 // Card fan fills screen
                 Expanded(child: CardFanWidget(
-                  deck: _deck,
                   shuffledCards: _shuffled,
                   cardCount: _cardCount,
                   selectedIndices: _selectedIndices,

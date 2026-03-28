@@ -26,7 +26,7 @@ GoRouter appRouter(AppRouterRef ref) {
       GoRoute(
         path: Routes.consultation,
         builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
+          final extra = state.extra is Map<String, dynamic> ? state.extra as Map<String, dynamic> : null;
           final spread = extra?['spreadType'] as SpreadType? ?? SpreadType.threeCard;
           return ConsultationScreen(spreadType: spread);
         },

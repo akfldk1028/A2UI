@@ -1,6 +1,7 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:genui/genui.dart';
 import 'package:logging/logging.dart';
 
@@ -14,6 +15,11 @@ import '../../services/ai_client.dart';
 import '../../services/transport.dart';
 
 enum ConsultationPhase { question, personaPick, picking, reading, chatting }
+
+final tarotSessionProvider =
+    ChangeNotifierProvider.autoDispose<TarotSession>((ref) {
+  return TarotSession();
+});
 
 class TarotSession extends ChangeNotifier {
   TarotSession({AiClient? aiClient}) {

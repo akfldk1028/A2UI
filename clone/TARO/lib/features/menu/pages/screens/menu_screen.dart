@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../models/reading_category.dart';
 import '../../../../models/spread_type.dart';
 import '../../../../router/routes.dart';
 import '../../../../shared/widgets/mystical_background.dart';
@@ -10,8 +11,33 @@ import '../../../../shared/widgets/mystical_background.dart';
 class MenuScreen extends StatelessWidget {
   const MenuScreen({super.key});
 
-  void _startReading(BuildContext context, SpreadType spread) {
-    context.push(Routes.consultation, extra: {'spreadType': spread});
+  void _onCategoryTap(BuildContext context, ReadingCategory category) {
+    final spreads = SpreadType.forCategory(category);
+    if (spreads.length == 1) {
+      context.push(Routes.consultation, extra: {
+        'category': category,
+        'spreadType': spreads.first,
+      });
+    } else {
+      context.push(Routes.spreadSelect, extra: {'category': category});
+    }
+  }
+
+  static List<Color> _categoryGradient(ReadingCategory category) {
+    return switch (category) {
+      ReadingCategory.fortune  => const [Color(0xFF2D1B69), Color(0xFF0D0520)],
+      ReadingCategory.love     => const [Color(0xFF4A1B3D), Color(0xFF2A0D22)],
+      ReadingCategory.career   => const [Color(0xFF1B4A3D), Color(0xFF0D2A22)],
+      ReadingCategory.general  => const [Color(0xFF1B2D69), Color(0xFF0D1535)],
+      ReadingCategory.decision => const [Color(0xFF3D1B54), Color(0xFF1A0A2E)],
+    };
+  }
+
+  static Color? _categoryAccent(ReadingCategory category) {
+    return switch (category) {
+      ReadingCategory.love => TaroColors.rose,
+      _ => null,
+    };
   }
 
   @override
@@ -65,54 +91,38 @@ class MenuScreen extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                   child: _HeroCard(
-                    onTap: () => _startReading(context, SpreadType.dailyOne),
+                    onTap: () => _onCategoryTap(context, ReadingCategory.fortune),
                   ),
                 ),
               ),
 
-              // Category cards
+              // Category cards — dynamically generated from ReadingCategory
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
                 sliver: SliverList(
-                  delegate: SliverChildListDelegate([
-                    _CategoryCard(
-                      title: 'card_selection.threeCardName'.tr(),
-                      subtitle: 'card_selection.threeCardDesc'.tr(),
-                      badge: '3 Cards',
-                      icon: Icons.blur_on_rounded,
-                      gradient: const [Color(0xFF1B2D69), Color(0xFF0D1535)],
-                      onTap: () => _startReading(context, SpreadType.threeCard),
-                    ),
-                    const SizedBox(height: 14),
-                    _CategoryCard(
-                      title: 'menu.loveReading'.tr(),
-                      subtitle: 'menu.loveReadingDesc'.tr(),
-                      badge: 'Love',
-                      icon: Icons.favorite_outline,
-                      gradient: const [Color(0xFF4A1B3D), Color(0xFF2A0D22)],
-                      accentColor: TaroColors.rose,
-                      onTap: () => _startReading(context, SpreadType.threeCard),
-                    ),
-                    const SizedBox(height: 14),
-                    _CategoryCard(
-                      title: 'menu.monthlyFortune'.tr(),
-                      subtitle: 'menu.monthlyFortuneDesc'.tr(),
-                      badge: 'Monthly',
-                      icon: Icons.calendar_month_outlined,
-                      gradient: const [Color(0xFF1B4A3D), Color(0xFF0D2A22)],
-                      onTap: () => _startReading(context, SpreadType.threeCard),
-                    ),
-                    const SizedBox(height: 14),
-                    _CategoryCard(
-                      title: 'card_selection.celticCrossName'.tr(),
-                      subtitle: 'card_selection.celticCrossDesc'.tr(),
-                      badge: '10 Cards',
-                      icon: Icons.apps_rounded,
-                      gradient: const [Color(0xFF3D1B54), Color(0xFF1A0A2E)],
-                      isPro: true,
-                      onTap: () => _startReading(context, SpreadType.celticCross),
-                    ),
-                  ]),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final category = ReadingCategory.values[index];
+                      final spreads = SpreadType.forCategory(category);
+                      if (spreads.isEmpty) return const SizedBox.shrink();
+                      final cardCount = spreads.length == 1
+                          ? '${spreads.first.cardCount} Cards'
+                          : '${spreads.length} Spreads';
+                      return Padding(
+                        padding: EdgeInsets.only(top: index == 0 ? 0 : 14),
+                        child: _CategoryCard(
+                          title: category.label,
+                          subtitle: category.subtitle,
+                          badge: cardCount,
+                          icon: category.icon,
+                          gradient: _categoryGradient(category),
+                          accentColor: _categoryAccent(category),
+                          onTap: () => _onCategoryTap(context, category),
+                        ),
+                      );
+                    },
+                    childCount: ReadingCategory.values.length,
+                  ),
                 ),
               ),
             ],

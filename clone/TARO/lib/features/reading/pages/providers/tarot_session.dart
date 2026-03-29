@@ -1,13 +1,14 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:genui/genui.dart';
 import 'package:logging/logging.dart';
 
 import '../../../../core/config/ai_config.dart';
 import '../../../../core/services/cache_service.dart';
+import '../../../../models/reading_category.dart';
 import '../../../../models/spread_type.dart';
+import '../../prompts/prompt_builder.dart';
 import '../../../../models/tarot_card_data.dart';
 import '../../catalog/tarot_catalog.dart';
 import '../../models/oracle_persona.dart';
@@ -42,6 +43,14 @@ class TarotSession extends ChangeNotifier {
   ConsultationPhase _phase = ConsultationPhase.question;
   ConsultationPhase get phase => _phase;
 
+  ReadingCategory _category = ReadingCategory.general;
+  ReadingCategory get category => _category;
+
+  int _requestedDrawCount = 0;
+  int get requestedDrawCount => _requestedDrawCount;
+  List<String> _requestedPositions = [];
+  List<String> get requestedPositions => List.unmodifiable(_requestedPositions);
+
   String? _userQuestion;
   String get userQuestion => _userQuestion ?? '';
 
@@ -75,13 +84,21 @@ class TarotSession extends ChangeNotifier {
   Future<void> _ensureInitialized() async {
     if (_initialized) return;
 
-    final systemPrompt = await rootBundle.loadString(
-      'assets/prompts/oracle_system.txt',
+    final systemPrompt = PromptBuilder.build(
+      category: _category,
+      spread: _currentSpread ?? SpreadType.threeCard,
+      persona: _persona,
     );
 
     _contentGenerator = TaroContentGenerator(
       aiClient: _client,
       systemPrompt: systemPrompt,
+      onDrawCardsDetected: (count, positions) {
+        _requestedDrawCount = count;
+        _requestedPositions = positions;
+        _phase = ConsultationPhase.picking;
+        notifyListeners();
+      },
     );
     _processor = A2uiMessageProcessor(catalogs: [taroCatalog]);
     _conversation = GenUiConversation(
@@ -101,8 +118,9 @@ class TarotSession extends ChangeNotifier {
   // --- Public API ---
 
   /// Start consultation — no AI call, just set up state.
-  void startConsultation({required String locale}) {
+  void startConsultation({required String locale, required ReadingCategory category}) {
     _locale = locale;
+    _category = category;
     _phase = ConsultationPhase.question;
     notifyListeners();
   }
@@ -226,6 +244,14 @@ class TarotSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// AI requested more cards to be drawn.
+  void requestMoreCards(int count, List<String> positions) {
+    _requestedDrawCount = count;
+    _requestedPositions = positions;
+    _phase = ConsultationPhase.picking;
+    notifyListeners();
+  }
+
   // --- Private ---
 
   Future<void> _sendToAi(String text) async {
@@ -239,6 +265,17 @@ class TarotSession extends ChangeNotifier {
     if (!exists) {
       _messages.add(TarotMessage(isUser: false, surfaceId: update.surfaceId));
       notifyListeners();
+    }
+
+    // Check for DrawCards component → auto-trigger picking
+    final surface = _conversation!.host?.surfaces[update.surfaceId];
+    if (surface != null) {
+      if (update.surfaceId.startsWith('draw-')) {
+        _requestedDrawCount = 1;
+        _requestedPositions = ['추가 카드'];
+        _phase = ConsultationPhase.picking;
+        notifyListeners();
+      }
     }
   }
 

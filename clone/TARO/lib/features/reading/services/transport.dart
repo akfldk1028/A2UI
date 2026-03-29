@@ -15,10 +15,15 @@ import 'ai_client.dart';
 /// as A2uiMessages incrementally during streaming. Non-JSON text is
 /// emitted after the stream completes.
 class TaroContentGenerator implements ContentGenerator {
-  TaroContentGenerator({required this.aiClient, required this.systemPrompt});
+  TaroContentGenerator({
+    required this.aiClient,
+    required this.systemPrompt,
+    this.onDrawCardsDetected,
+  });
 
   final AiClient aiClient;
   final String systemPrompt;
+  final void Function(int count, List<String> positions)? onDrawCardsDetected;
 
   final StreamController<A2uiMessage> _a2uiController =
       StreamController<A2uiMessage>.broadcast();
@@ -168,17 +173,32 @@ class TaroContentGenerator implements ContentGenerator {
       if (_disposed) return false;
       _a2uiController.add(message);
       _logger.info('Emitted A2UI message');
-      if (message is SurfaceUpdate && !_knownSurfaceIds.contains(message.surfaceId)) {
-        _knownSurfaceIds.add(message.surfaceId);
-        if (_disposed) return true;
-        final rootId = message.components.isNotEmpty
-            ? message.components.first.id
-            : 'root';
-        _a2uiController.add(BeginRendering(
-          surfaceId: message.surfaceId,
-          root: rootId,
-          catalogId: 'taro-catalog',
-        ));
+      if (message is SurfaceUpdate) {
+        // Check for DrawCards component
+        for (final comp in message.components) {
+          final props = comp.componentProperties;
+          if (props.containsKey('DrawCards')) {
+            final dc = props['DrawCards'] as Map<String, dynamic>;
+            onDrawCardsDetected?.call(
+              dc['count'] as int? ?? 1,
+              (dc['positions'] as List?)?.cast<String>() ?? ['추가 카드'],
+            );
+            break;
+          }
+        }
+
+        if (!_knownSurfaceIds.contains(message.surfaceId)) {
+          _knownSurfaceIds.add(message.surfaceId);
+          if (_disposed) return true;
+          final rootId = message.components.isNotEmpty
+              ? message.components.first.id
+              : 'root';
+          _a2uiController.add(BeginRendering(
+            surfaceId: message.surfaceId,
+            root: rootId,
+            catalogId: 'taro-catalog',
+          ));
+        }
       }
       return true;
     } catch (e) {

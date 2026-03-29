@@ -3,8 +3,10 @@ import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../features/menu/pages/screens/menu_screen.dart';
+import '../features/menu/pages/screens/spread_select_screen.dart';
 import '../features/reading/pages/screens/consultation_screen.dart';
 import '../features/splash/pages/screens/splash_screen.dart';
+import '../models/reading_category.dart';
 import '../models/spread_type.dart';
 import '../models/tarot_card_data.dart';
 import 'routes.dart';
@@ -25,11 +27,20 @@ GoRouter appRouter(AppRouterRef ref) {
         builder: (context, state) => const MenuScreen(),
       ),
       GoRoute(
+        path: Routes.spreadSelect,
+        builder: (context, state) {
+          final extra = state.extra is Map<String, dynamic> ? state.extra as Map<String, dynamic> : null;
+          final category = extra?['category'] as ReadingCategory? ?? ReadingCategory.general;
+          return SpreadSelectScreen(category: category);
+        },
+      ),
+      GoRoute(
         path: Routes.consultation,
         builder: (context, state) {
           final extra = state.extra is Map<String, dynamic> ? state.extra as Map<String, dynamic> : null;
           final spread = extra?['spreadType'] as SpreadType? ?? SpreadType.threeCard;
-          return ConsultationScreen(spreadType: spread);
+          final category = extra?['category'] as ReadingCategory? ?? spread.category;
+          return ConsultationScreen(spreadType: spread, category: category);
         },
       ),
     ],

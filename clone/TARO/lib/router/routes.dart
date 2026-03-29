@@ -2,5 +2,6 @@
 abstract class Routes {
   static const String splash = '/';
   static const String menu = '/menu';
+  static const String spreadSelect = '/spreads';
   static const String consultation = '/tarot';
 }

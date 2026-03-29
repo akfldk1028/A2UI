@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/config/ai_config.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../models/reading_category.dart';
 import '../../../../models/spread_type.dart';
 import '../../../../models/tarot_card_data.dart';
 import '../../../../router/routes.dart';
@@ -19,8 +20,9 @@ import '../widgets/question_phase.dart';
 import '../widgets/spread_display_widget.dart';
 
 class ConsultationScreen extends ConsumerStatefulWidget {
-  const ConsultationScreen({super.key, required this.spreadType});
+  const ConsultationScreen({super.key, required this.spreadType, required this.category});
   final SpreadType spreadType;
+  final ReadingCategory category;
 
   @override
   ConsumerState<ConsultationScreen> createState() => _ConsultationScreenState();
@@ -64,7 +66,10 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
     _shuffled = _deck!.shuffled();
     _cardCount = _shuffled.length;
     if (mounted) {
-      ref.read(tarotSessionProvider).startConsultation(locale: context.locale.languageCode);
+      ref.read(tarotSessionProvider).startConsultation(
+        locale: context.locale.languageCode,
+        category: widget.category,
+      );
     }
     setState(() {});
   }

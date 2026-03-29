@@ -104,7 +104,7 @@ class MenuScreen extends StatelessWidget {
                       final spreads = SpreadType.forCategory(category);
                       if (spreads.isEmpty) return const SizedBox.shrink();
                       final defaultSpread = spreads.first;
-                      final badge = '${defaultSpread.cardCount}장';
+                      final badge = 'card_selection.cardCount'.tr(namedArgs: {'count': '${defaultSpread.cardCount}'});
                       return Padding(
                         padding: EdgeInsets.only(top: index == 0 ? 0 : 14),
                         child: _CategoryCard(
@@ -186,7 +186,7 @@ class _HeroCard extends StatelessWidget {
                       border: Border.all(color: TaroColors.gold.withAlpha(60)),
                     ),
                     child: Text(
-                      '1장',
+                      'card_selection.cardCount'.tr(namedArgs: {'count': '1'}),
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: TaroColors.gold,
                         letterSpacing: 1,

@@ -15,7 +15,7 @@ final _schema = S.object(
     'reason': S.string(
       description: 'Why these cards should be drawn, e.g. "당신의 현재 상황을 더 깊이 들여다보겠습니다"',
     ),
-    'positions': S.array(
+    'positions': S.list(
       items: S.string(),
       description: 'Names for each card position, e.g. ["과거", "현재", "미래"]',
     ),

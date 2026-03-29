@@ -267,16 +267,8 @@ class TarotSession extends ChangeNotifier {
       notifyListeners();
     }
 
-    // Check for DrawCards component → auto-trigger picking
-    final surface = _conversation!.host?.surfaces[update.surfaceId];
-    if (surface != null) {
-      if (update.surfaceId.startsWith('draw-')) {
-        _requestedDrawCount = 1;
-        _requestedPositions = ['추가 카드'];
-        _phase = ConsultationPhase.picking;
-        notifyListeners();
-      }
-    }
+    // DrawCards detection is handled via onDrawCardsDetected callback
+    // in TaroContentGenerator (transport.dart) — no duplicate check needed here.
   }
 
   void _onSurfaceUpdated(SurfaceUpdated update) => notifyListeners();

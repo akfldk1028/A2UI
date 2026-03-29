@@ -164,6 +164,7 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
               // --- Phase-specific content ---
               if (phase == ConsultationPhase.question) ...[
                 Expanded(child: QuestionPhase(
+                  category: widget.category,
                   onChipTap: (label) => ref.read(tarotSessionProvider).handleUserQuestion(label),
                 )),
               ] else if (phase == ConsultationPhase.personaPick) ...[

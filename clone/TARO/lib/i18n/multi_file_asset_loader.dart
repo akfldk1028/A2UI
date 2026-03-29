@@ -12,6 +12,7 @@ class MultiFileAssetLoader extends AssetLoader {
     'reading',
     'splash',
     'menu',
+    'spreads',
   ];
 
   @override

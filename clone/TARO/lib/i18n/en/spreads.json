@@ -1,0 +1,18 @@
+{
+  "category": {
+    "fortune": "Fortune",
+    "love": "Love & Relationship",
+    "career": "Career",
+    "general": "General Reading",
+    "decision": "Decision"
+  },
+  "spread": {
+    "dailyOne": {"name": "Daily Tarot", "desc": "One card message for today"},
+    "loveThree": {"name": "You & Them", "desc": "Read the energy between two people"},
+    "hiddenFeelings": {"name": "Hidden Feelings", "desc": "What are they really thinking?"},
+    "monthlyForecast": {"name": "Monthly Forecast", "desc": "This month's energy and advice"},
+    "careerThree": {"name": "Career Reading", "desc": "Your professional path forward"},
+    "threeCard": {"name": "Three Card", "desc": "Past, Present, Future"},
+    "yesNo": {"name": "Yes or No", "desc": "Clear answer to a simple question"}
+  }
+}

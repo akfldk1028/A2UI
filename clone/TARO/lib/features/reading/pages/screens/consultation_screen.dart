@@ -51,8 +51,7 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
   int _cardCount = 0;
   int _hoveredIndex = -1;
   bool _cardsSubmitted = false;
-
-  bool get _pickingDone => _drawnCards.length >= widget.spreadType.cardCount;
+  ConsultationPhase _previousPhase = ConsultationPhase.question;
 
   @override
   void initState() {
@@ -87,20 +86,39 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
   }
 
   void _selectCard(int index) {
-    if (_selectedIndices.contains(index) || _pickingDone) return;
+    final session = ref.read(tarotSessionProvider);
+    final requiredCount = session.requestedDrawCount > 0
+        ? session.requestedDrawCount
+        : widget.spreadType.cardCount;
+    final isAdditional = session.requestedDrawCount > 0;
+
+    if (_selectedIndices.contains(index) || _drawnCards.length >= requiredCount) return;
+
+    // For additional draws, use requestedPositions; for initial, use spread positions
+    final position = isAdditional
+        ? (session.requestedPositions.length > _drawnCards.length
+            ? session.requestedPositions[_drawnCards.length]
+            : '추가 카드')
+        : widget.spreadType.positions[_drawnCards.length];
+
     setState(() {
       _selectedIndices.add(index);
       _drawnCards.add(DrawnCard(
         card: _shuffled[index],
-        position: widget.spreadType.positions[_drawnCards.length],
+        position: position,
         isReversed: _rng.nextDouble() < AiConfig.reversalProbability,
       ));
     });
-    if (_pickingDone && !_cardsSubmitted) {
+    if (_drawnCards.length >= requiredCount && !_cardsSubmitted) {
       _cardsSubmitted = true;
-      final session = ref.read(tarotSessionProvider);
       Future.delayed(const Duration(milliseconds: 800), () {
-        if (mounted) session.handleCardsDrawn(_drawnCards, widget.spreadType);
+        if (mounted) {
+          if (isAdditional) {
+            session.handleAdditionalDraw(_drawnCards);
+          } else {
+            session.handleCardsDrawn(_drawnCards, widget.spreadType);
+          }
+        }
       });
     }
   }
@@ -120,13 +138,28 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
     final isMobile = size.width < 500;
     final phase = session.phase;
 
+    // Detect picking re-entry from chatting (AI-triggered DrawCards)
+    if (phase == ConsultationPhase.picking && _previousPhase == ConsultationPhase.chatting) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _selectedIndices.clear();
+            _drawnCards.clear();
+            _cardsSubmitted = false;
+            _fanAnim.forward(from: 0);
+          });
+        }
+      });
+    }
+    _previousPhase = phase;
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: TaroColors.backgroundGradient),
         child: SafeArea(
           child: Column(
             children: [
-              _buildAppBar(theme, phase),
+              _buildAppBar(theme, phase, session),
 
               // --- Phase-specific content ---
               if (phase == ConsultationPhase.question) ...[
@@ -151,7 +184,9 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
                   shuffledCards: _shuffled,
                   cardCount: _cardCount,
                   selectedIndices: _selectedIndices,
-                  requiredCount: widget.spreadType.cardCount,
+                  requiredCount: session.requestedDrawCount > 0
+                      ? session.requestedDrawCount
+                      : widget.spreadType.cardCount,
                   hoveredIndex: _hoveredIndex,
                   fanAnimation: _fanAnim,
                   onCardSelected: _selectCard,
@@ -200,7 +235,7 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
   }
 
   // \u2500\u2500\u2500\u2500 App Bar \u2500\u2500\u2500\u2500
-  Widget _buildAppBar(ThemeData theme, ConsultationPhase phase) {
+  Widget _buildAppBar(ThemeData theme, ConsultationPhase phase, TarotSession session) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
       decoration: BoxDecoration(
@@ -230,7 +265,10 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
           if (phase == ConsultationPhase.picking)
             Row(
               mainAxisSize: MainAxisSize.min,
-              children: List.generate(widget.spreadType.cardCount, (i) {
+              children: List.generate(
+                session.requestedDrawCount > 0
+                    ? session.requestedDrawCount
+                    : widget.spreadType.cardCount, (i) {
                 final filled = i < _drawnCards.length;
                 return AnimatedContainer(
                   duration: const Duration(milliseconds: 300),

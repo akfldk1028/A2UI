@@ -318,63 +318,109 @@ AI: "추가로 뽑은 The Chariot은... 결단의 에너지입니다" (TarotCard
 AI: "별이 당신의 여정을 축복합니다" (OracleMessage)
 ```
 
-#### 구현: "카드 더 뽑기" 트리거
+#### 구현: AI 자동 카드 뽑기 트리거 (A2UI 방식)
 
-**방법: 앱 UI 버튼 (ChatInputField 옆)**
+**원칙: AI가 대화 맥락을 파악해서 카드가 필요하면 자동으로 트리거.**
+사용자가 버튼을 누르는 게 아니라, AI가 판단.
 
-```dart
-// chatting phase일 때 채팅 입력 옆에 "카드 뽑기" 버튼 표시
-ChatInputField(
-  trailing: IconButton(
-    icon: Icon(Icons.style, color: TaroColors.gold),  // 카드 아이콘
-    tooltip: '카드 더 뽑기',
-    onPressed: () {
-      // picking phase로 전환 — 카드 팬 UI 표시
-      ref.read(tarotSessionProvider).requestMoreCards();
-    },
-  ),
-)
+**예시 시나리오:**
+```
+사용자: "연애운도 궁금한데?"
+AI 판단: 새로운 주제 → 카드 필요 → DrawCards 컴포넌트 생성
+→ 앱이 자동으로 카드 팬 UI 표시
+
+사용자: "좀 더 자세히 알려줘"
+AI 판단: 추가 카드로 깊이 → DrawCards(1장)
+→ 카드 팬 → 1장 뽑기 → AI 해석
+
+사용자: "고마워 도움됐어"
+AI 판단: 대화 종료 → DrawCards 없이 OracleMessage만
 ```
 
-**TarotSession.requestMoreCards():**
-```dart
-void requestMoreCards() {
-  _phase = ConsultationPhase.picking;
-  // 기존 _allDrawnCards 유지 — 추가 카드가 append됨
-  // _drawnCards (로컬)는 ConsultationScreen에서 리셋
-  notifyListeners();
+**A2UI 컴포넌트: `DrawCards` (신규)**
+
+AI가 카드 뽑기가 필요하다고 판단하면 이 컴포넌트를 생성:
+```json
+{
+  "surfaceUpdate": {
+    "surfaceId": "draw-action-1",
+    "components": [{
+      "id": "draw-1",
+      "component": {
+        "DrawCards": {
+          "count": 1,
+          "reason": "연애운을 더 깊이 보기 위해",
+          "positions": ["연애 에너지"],
+          "context": "additional"
+        }
+      }
+    }]
+  }
 }
 ```
 
-**ConsultationScreen에서:**
+**DrawCards 필드:**
+- `count`: 뽑을 카드 수 (1~3)
+- `reason`: 왜 카드가 필요한지 (사용자에게 표시)
+- `positions`: 카드 위치 이름 리스트
+- `context`: `"initial"` (첫 리딩) | `"additional"` (추가) | `"new_topic"` (새 주제)
+
+**앱 측 처리:**
+
 ```dart
-// picking phase 진입 시
-if (phase == ConsultationPhase.picking && _previousPhase == ConsultationPhase.chatting) {
-  // 추가 뽑기 모드: 1장만 뽑기 (requiredCount = 1)
-  _additionalDrawMode = true;
-  _selectedIndices.clear();
-  _drawnCards.clear();  // 로컬만 — session의 allDrawnCards는 유지
-  _cardsSubmitted = false;
-  _fanAnim.forward(from: 0);
+// catalog/draw_cards.dart — A2UI 카탈로그 등록
+// DrawCards 컴포넌트가 렌더링되면 → picking phase 자동 전환
+
+class DrawCardsWidget extends StatelessWidget {
+  // reason 텍스트를 보여주며 카드 팬으로 자동 전환
+  // "연애운을 더 깊이 보기 위해 카드를 뽑아주세요" + 자동 전환 애니메이션
 }
 ```
 
-**AI에 전달할 때:**
 ```dart
-// 추가 카드는 "The seeker drew 1 additional card..." 로 전달
-// AI가 기존 리딩 맥락에서 추가 해석
-'The seeker drew 1 additional card for deeper insight.\n'
-'Previous cards: ${_allPreviousCards}\n'
-'New card: ${newCard.card.name} in position "추가 카드"'
+// TarotSession — DrawCards 컴포넌트 감지 시
+void _onSurfaceAdded(String surfaceId, GenUiSurface surface) {
+  // ... 기존 처리 ...
+
+  // DrawCards 컴포넌트 감지 → picking phase 전환
+  if (_isDrawCardsComponent(surface)) {
+    final drawInfo = _extractDrawInfo(surface);
+    _requestedDrawCount = drawInfo.count;
+    _requestedPositions = drawInfo.positions;
+    _phase = ConsultationPhase.picking;
+    notifyListeners();
+  }
+}
+```
+
+**AI 시스템 프롬프트에 추가할 규칙:**
+
+```
+DRAW CARDS RULES:
+- When the seeker asks about a NEW TOPIC that needs cards, generate DrawCards component
+- When the seeker wants MORE DEPTH on current reading, generate DrawCards(count: 1)
+- When the seeker just asks a follow-up QUESTION, answer with OracleMessage only
+- NEVER generate DrawCards for casual conversation ("thank you", "I see", etc.)
+- DrawCards triggers the app to show the card picking UI automatically
+
+Examples of when to DrawCards:
+  "연애운도 봐줘" → DrawCards(count: 3, context: "new_topic")
+  "한 장 더 뽑아볼래" → DrawCards(count: 1, context: "additional")
+  "이 부분 좀 더 깊이" → DrawCards(count: 1, context: "additional")
+
+Examples of when NOT to DrawCards:
+  "무슨 뜻이야?" → OracleMessage (설명)
+  "고마워" → OracleMessage (인사)
+  "그럼 어떻게 해야 해?" → OracleMessage (조언)
 ```
 
 #### Phase 전환 규칙
 
-| 현재 Phase | 사용자 액션 | 다음 Phase | 비고 |
-|-----------|-----------|-----------|------|
-| chatting | 텍스트 입력 | chatting | AI 대화 계속 |
-| chatting | "카드 뽑기" 버튼 | picking | 카드 팬 UI로 전환, 1장 추가 모드 |
-| picking (추가) | 1장 뽑음 | reading | 추가 카드 해석 |
+| 현재 Phase | 트리거 | 다음 Phase | 비고 |
+|-----------|--------|-----------|------|
+| chatting | 사용자 텍스트 (일반 질문) | chatting | AI가 OracleMessage로 응답 |
+| chatting | 사용자 텍스트 (카드 필요) | picking | AI가 DrawCards 생성 → 앱 자동 전환 |
+| picking (추가) | 카드 N장 뽑음 | reading | AI가 추가 카드 해석 |
 | reading (추가) | AI 해석 완료 | chatting | 대화 계속 |
 | chatting | 뒤로가기/새 상담 | menu | 세션 종료 |
 

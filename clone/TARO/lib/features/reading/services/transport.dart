@@ -171,9 +171,12 @@ class TaroContentGenerator implements ContentGenerator {
       if (message is SurfaceUpdate && !_knownSurfaceIds.contains(message.surfaceId)) {
         _knownSurfaceIds.add(message.surfaceId);
         if (_disposed) return true;
+        final rootId = message.components.isNotEmpty
+            ? message.components.first.id
+            : 'root';
         _a2uiController.add(BeginRendering(
           surfaceId: message.surfaceId,
-          root: 'root',
+          root: rootId,
           catalogId: 'taro-catalog',
         ));
       }

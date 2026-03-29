@@ -38,13 +38,12 @@ class EdgeFunctionAiClient implements AiClient {
 
     // Convert dartantic history to simple {role, content} messages
     for (final msg in history) {
-      final role = switch (msg) {
-        dartantic.SystemMessage() => 'system',
-        dartantic.UserMessage() => 'user',
-        dartantic.ModelMessage() => 'assistant',
-        _ => 'user',
+      final role = switch (msg.role) {
+        dartantic.ChatMessageRole.system => 'system',
+        dartantic.ChatMessageRole.user => 'user',
+        dartantic.ChatMessageRole.model => 'assistant',
       };
-      messages.add({'role': role, 'content': msg.content});
+      messages.add({'role': role, 'content': msg.text});
     }
     messages.add({'role': 'user', 'content': prompt});
 

@@ -86,7 +86,7 @@ class TarotSession extends ChangeNotifier {
 
     final systemPrompt = PromptBuilder.build(
       category: _category,
-      spread: _currentSpread ?? SpreadType.threeCard,
+      spread: _currentSpread ?? SpreadType.generalReading,
       persona: _persona,
     );
 

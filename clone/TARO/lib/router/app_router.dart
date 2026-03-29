@@ -37,7 +37,7 @@ GoRouter appRouter(AppRouterRef ref) {
         path: Routes.consultation,
         builder: (context, state) {
           final extra = state.extra is Map<String, dynamic> ? state.extra as Map<String, dynamic> : null;
-          final spread = extra?['spreadType'] as SpreadType? ?? SpreadType.threeCard;
+          final spread = extra?['spreadType'] as SpreadType? ?? SpreadType.generalReading;
           final category = extra?['category'] as ReadingCategory? ?? spread.category;
           return ConsultationScreen(spreadType: spread, category: category);
         },

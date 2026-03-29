@@ -103,15 +103,14 @@ class MenuScreen extends StatelessWidget {
                       final category = ReadingCategory.values[index];
                       final spreads = SpreadType.forCategory(category);
                       if (spreads.isEmpty) return const SizedBox.shrink();
-                      final cardCount = spreads.length == 1
-                          ? '${spreads.first.cardCount} Cards'
-                          : '${spreads.length} Spreads';
+                      final defaultSpread = spreads.first;
+                      final badge = '${defaultSpread.cardCount}장';
                       return Padding(
                         padding: EdgeInsets.only(top: index == 0 ? 0 : 14),
                         child: _CategoryCard(
                           title: category.label,
                           subtitle: category.subtitle,
-                          badge: cardCount,
+                          badge: badge,
                           icon: category.icon,
                           gradient: _categoryGradient(category),
                           accentColor: _categoryAccent(category),
@@ -187,7 +186,7 @@ class _HeroCard extends StatelessWidget {
                       border: Border.all(color: TaroColors.gold.withAlpha(60)),
                     ),
                     child: Text(
-                      '1 Card',
+                      '1장',
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: TaroColors.gold,
                         letterSpacing: 1,

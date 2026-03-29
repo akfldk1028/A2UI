@@ -277,6 +277,107 @@ READING CONTEXT: DECISION & CHOICE
 - 1개 스프레드만 있는 카테고리(오늘의 타로, 예/아니오)는 바로 상담으로 진입
 - `ConsultationScreen`: `spreadType`에서 `category` + `spreadType` 둘 다 받음
 
+### 상담 중 대화 플로우 (티카타카)
+
+상담은 **일회성 리포트가 아니라 대화**. 카드 해석 후 후속 질문, 추가 카드 뽑기가 자연스럽게 이어져야 함.
+
+#### Phase 상태 머신 (확장)
+
+```
+question → personaPick → picking → reading → chatting
+                           ↑                    │
+                           └── (카드 더 뽑기) ───┘
+```
+
+- `chatting` 중 사용자가 "카드 더 뽑고 싶어" → `picking` phase로 되돌아감
+- `picking`에서 카드 뽑으면 → `reading`에서 추가 카드 해석 → 다시 `chatting`
+- 이 루프는 무한 반복 가능 — 사용자가 "끝" 하거나 나갈 때까지
+
+#### 대화 시나리오 예시
+
+```
+[질문] "이번 달에 이직해도 될까요?"
+[페르소나] 신비 현자 선택
+[카드 뽑기] 3장 뽑음 (진로 3카드: 현재/장애물/나아갈 길)
+
+AI: "The Star가 현재 위치에... 지금은 준비의 시간입니다"
+AI: "5 of Swords가 장애물에... 내부 갈등을 정리하세요"
+AI: "Ace of Pentacles가 나아갈 길에... 새로운 기회의 씨앗"
+AI: [ReadingSummary] 종합 해석
+
+사용자: "그럼 언제쯤 이직하는 게 좋을까?"
+AI: "카드가 말하는 타이밍은..." (OracleMessage)
+
+사용자: "한 장 더 뽑고 싶어"
+→ [앱 UI] 카드 팬으로 전환 (picking phase)
+→ 사용자 1장 뽑음
+
+AI: "추가로 뽑은 The Chariot은... 결단의 에너지입니다" (TarotCard + OracleMessage)
+
+사용자: "고마워, 용기가 생겼어"
+AI: "별이 당신의 여정을 축복합니다" (OracleMessage)
+```
+
+#### 구현: "카드 더 뽑기" 트리거
+
+**방법: 앱 UI 버튼 (ChatInputField 옆)**
+
+```dart
+// chatting phase일 때 채팅 입력 옆에 "카드 뽑기" 버튼 표시
+ChatInputField(
+  trailing: IconButton(
+    icon: Icon(Icons.style, color: TaroColors.gold),  // 카드 아이콘
+    tooltip: '카드 더 뽑기',
+    onPressed: () {
+      // picking phase로 전환 — 카드 팬 UI 표시
+      ref.read(tarotSessionProvider).requestMoreCards();
+    },
+  ),
+)
+```
+
+**TarotSession.requestMoreCards():**
+```dart
+void requestMoreCards() {
+  _phase = ConsultationPhase.picking;
+  // 기존 _allDrawnCards 유지 — 추가 카드가 append됨
+  // _drawnCards (로컬)는 ConsultationScreen에서 리셋
+  notifyListeners();
+}
+```
+
+**ConsultationScreen에서:**
+```dart
+// picking phase 진입 시
+if (phase == ConsultationPhase.picking && _previousPhase == ConsultationPhase.chatting) {
+  // 추가 뽑기 모드: 1장만 뽑기 (requiredCount = 1)
+  _additionalDrawMode = true;
+  _selectedIndices.clear();
+  _drawnCards.clear();  // 로컬만 — session의 allDrawnCards는 유지
+  _cardsSubmitted = false;
+  _fanAnim.forward(from: 0);
+}
+```
+
+**AI에 전달할 때:**
+```dart
+// 추가 카드는 "The seeker drew 1 additional card..." 로 전달
+// AI가 기존 리딩 맥락에서 추가 해석
+'The seeker drew 1 additional card for deeper insight.\n'
+'Previous cards: ${_allPreviousCards}\n'
+'New card: ${newCard.card.name} in position "추가 카드"'
+```
+
+#### Phase 전환 규칙
+
+| 현재 Phase | 사용자 액션 | 다음 Phase | 비고 |
+|-----------|-----------|-----------|------|
+| chatting | 텍스트 입력 | chatting | AI 대화 계속 |
+| chatting | "카드 뽑기" 버튼 | picking | 카드 팬 UI로 전환, 1장 추가 모드 |
+| picking (추가) | 1장 뽑음 | reading | 추가 카드 해석 |
+| reading (추가) | AI 해석 완료 | chatting | 대화 계속 |
+| chatting | 뒤로가기/새 상담 | menu | 세션 종료 |
+
 ### AI 해석 파이프라인
 
 ```

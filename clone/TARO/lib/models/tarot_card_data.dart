@@ -76,22 +76,6 @@ class DrawnCard {
   final bool isReversed;
 }
 
-enum SpreadType {
-  oneCard(1, 'One Card', ['Guidance']),
-  threeCard(3, 'Three Card', ['Past', 'Present', 'Future']),
-  celticCross(10, 'Celtic Cross', [
-    'Present', 'Challenge', 'Past', 'Future',
-    'Above', 'Below', 'Advice', 'Environment',
-    'Hopes', 'Outcome',
-  ]);
-
-  const SpreadType(this.cardCount, this.displayName, this.positions);
-
-  final int cardCount;
-  final String displayName;
-  final List<String> positions;
-}
-
 class TarotDeck {
   TarotDeck(this.cards);
 

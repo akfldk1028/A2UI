@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 
 import '../../../../core/config/ai_config.dart';
 import '../../../../core/services/cache_service.dart';
+import '../../../../models/spread_type.dart';
 import '../../../../models/tarot_card_data.dart';
 import '../../catalog/tarot_catalog.dart';
 import '../../models/oracle_persona.dart';

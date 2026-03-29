@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/config/ai_config.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../models/spread_type.dart';
 import '../../../../models/tarot_card_data.dart';
 import '../../../../router/routes.dart';
 import '../providers/tarot_session.dart';

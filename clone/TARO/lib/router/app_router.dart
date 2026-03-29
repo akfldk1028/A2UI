@@ -5,6 +5,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../features/menu/pages/screens/menu_screen.dart';
 import '../features/reading/pages/screens/consultation_screen.dart';
 import '../features/splash/pages/screens/splash_screen.dart';
+import '../models/spread_type.dart';
 import '../models/tarot_card_data.dart';
 import 'routes.dart';
 

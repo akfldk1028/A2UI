@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/app_colors.dart';
-import '../../../../models/tarot_card_data.dart';
+import '../../../../models/spread_type.dart';
 import '../../../../router/routes.dart';
 import '../../../../shared/widgets/mystical_background.dart';
 
@@ -65,7 +65,7 @@ class MenuScreen extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                   child: _HeroCard(
-                    onTap: () => _startReading(context, SpreadType.oneCard),
+                    onTap: () => _startReading(context, SpreadType.dailyOne),
                   ),
                 ),
               ),

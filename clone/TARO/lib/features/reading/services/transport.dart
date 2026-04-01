@@ -19,11 +19,14 @@ class TaroContentGenerator implements ContentGenerator {
     required this.aiClient,
     required this.systemPrompt,
     this.onDrawCardsDetected,
+    this.onSpokenTextDetected,
   });
 
   final AiClient aiClient;
   final String systemPrompt;
-  final void Function(int count, List<String> positions)? onDrawCardsDetected;
+  final void Function(int count, List<String> positions, String context)? onDrawCardsDetected;
+  /// Called with extracted spoken text from OracleMessage and TarotCard interpretations.
+  final void Function(String text)? onSpokenTextDetected;
 
   final StreamController<A2uiMessage> _a2uiController =
       StreamController<A2uiMessage>.broadcast();
@@ -35,6 +38,10 @@ class TaroContentGenerator implements ContentGenerator {
   final List<dartantic.ChatMessage> _history = [];
   final Logger _logger = Logger('TaroContentGenerator');
   final Set<String> _knownSurfaceIds = {};
+  final Map<String, String> _surfaceComponentNames = {};
+
+  /// Maps surfaceId → primary component name (e.g. 'TarotCard', 'OracleMessage').
+  Map<String, String> get surfaceComponentNames => _surfaceComponentNames;
 
   bool _initialized = false;
   bool _disposed = false;
@@ -78,18 +85,26 @@ class TaroContentGenerator implements ContentGenerator {
       final buffer = StringBuffer();
       final emittedRanges = <(int, int)>[];
 
-      await for (final chunk in stream) {
-        if (chunk.isNotEmpty) {
-          buffer.write(chunk);
-          _tryEmitNewBlocks(buffer.toString(), emittedRanges);
+      // Safety timeout: entire request must complete within 90 seconds
+      await Future(() async {
+        await for (final chunk in stream) {
+          if (chunk.isNotEmpty) {
+            buffer.write(chunk);
+            _tryEmitNewBlocks(buffer.toString(), emittedRanges);
+          }
         }
-      }
+      }).timeout(const Duration(seconds: 90));
 
       final responseText = buffer.toString();
       _history.add(dartantic.ChatMessage.model(responseText));
       _trimHistory();
 
       _emitRemainingText(responseText, emittedRanges);
+    } on TimeoutException {
+      _logger.warning('Request timed out after 90s');
+      if (!_disposed) {
+        _textController.add('응답 시간이 초과되었습니다. 다시 시도해 주세요.');
+      }
     } catch (e, st) {
       _logger.severe('Error generating content', e, st);
       if (!_disposed) _errorController.add(ContentGeneratorError(e, st));
@@ -141,19 +156,11 @@ class TaroContentGenerator implements ContentGenerator {
   }
 
   /// Emits remaining text (non-JSON) after streaming completes.
+  /// If A2UI components were emitted, skip leftover text to avoid duplication.
   void _emitRemainingText(String responseText, List<(int, int)> emittedRanges) {
-    final remaining = StringBuffer();
-    var pos = 0;
-    final sorted = emittedRanges..sort((a, b) => a.$1.compareTo(b.$1));
-    for (final (start, end) in sorted) {
-      if (pos < start) remaining.write(responseText.substring(pos, start));
-      pos = end;
-    }
-    if (pos < responseText.length) {
-      remaining.write(responseText.substring(pos));
-    }
+    if (emittedRanges.isNotEmpty) return; // A2UI handled it — no duplicate text
 
-    final text = remaining.toString().trim();
+    final text = responseText.trim();
     if (text.isNotEmpty && !_disposed) {
       _textController.add(text);
     }
@@ -171,19 +178,66 @@ class TaroContentGenerator implements ContentGenerator {
       final json = jsonDecode(jsonBlock) as Map<String, dynamic>;
       final message = A2uiMessage.fromJson(json);
       if (_disposed) return false;
+
+      // Drop ReadingSummary and DrawCards before emitting — not shown in UI
+      if (message is SurfaceUpdate) {
+        final hasReadingSummary = message.components.any(
+          (c) => c.componentProperties.containsKey('ReadingSummary'),
+        );
+        if (hasReadingSummary) {
+          _logger.info('Dropped ReadingSummary component');
+          return true;
+        }
+
+        // DrawCards: fire callback only, don't show in UI
+        final hasDrawCards = message.components.any(
+          (c) => c.componentProperties.containsKey('DrawCards'),
+        );
+        if (hasDrawCards) {
+          for (final comp in message.components) {
+            final props = comp.componentProperties;
+            if (props.containsKey('DrawCards')) {
+              final dc = props['DrawCards'] as Map<String, dynamic>;
+              onDrawCardsDetected?.call(
+                dc['count'] as int? ?? 1,
+                (dc['positions'] as List?)?.cast<String>() ?? ['추가 카드'],
+                dc['context'] as String? ?? 'additional',
+              );
+              break;
+            }
+          }
+          _logger.info('Dropped DrawCards component (callback only)');
+          return true;
+        }
+      }
+
       _a2uiController.add(message);
       _logger.info('Emitted A2UI message');
       if (message is SurfaceUpdate) {
-        // Check for DrawCards component
+        // Record primary component name for this surface
+        for (final comp in message.components) {
+          final keys = comp.componentProperties.keys;
+          if (keys.isNotEmpty) {
+            _surfaceComponentNames[message.surfaceId] = keys.first;
+            break;
+          }
+        }
+
+        // Extract spoken text from OracleMessage and TarotCard
         for (final comp in message.components) {
           final props = comp.componentProperties;
-          if (props.containsKey('DrawCards')) {
-            final dc = props['DrawCards'] as Map<String, dynamic>;
-            onDrawCardsDetected?.call(
-              dc['count'] as int? ?? 1,
-              (dc['positions'] as List?)?.cast<String>() ?? ['추가 카드'],
-            );
-            break;
+          if (props.containsKey('OracleMessage')) {
+            final om = props['OracleMessage'] as Map<String, dynamic>;
+            final text = om['text'] as String?;
+            if (text != null && text.isNotEmpty) {
+              onSpokenTextDetected?.call(text);
+            }
+          } else if (props.containsKey('TarotCard')) {
+            final tc = props['TarotCard'] as Map<String, dynamic>;
+            final interp = tc['interpretation'] as String?;
+            if (interp != null && interp.isNotEmpty) {
+              onSpokenTextDetected?.call(interp);
+            }
           }
         }
 

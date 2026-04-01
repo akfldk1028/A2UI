@@ -56,8 +56,15 @@ class MessageListWidget extends StatelessWidget {
         }
         final msg = messages[index];
         if (msg.surfaceId != null) {
+          // Merge OracleMessage visually into preceding TarotCard
+          final prev = index > 0 ? messages[index - 1] : null;
+          final isOracleAfterCard = msg.componentName == 'OracleMessage' &&
+              prev?.componentName == 'TarotCard';
           return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
+            padding: EdgeInsets.only(
+              top: isOracleAfterCard ? 0 : 6,
+              bottom: 6,
+            ),
             child: host != null
                 ? GenUiSurface(host: host!, surfaceId: msg.surfaceId!)
                 : const SizedBox.shrink(),

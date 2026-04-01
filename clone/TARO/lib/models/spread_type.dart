@@ -10,8 +10,9 @@ enum SpreadType {
   careerReading(cardCount: 6, displayName: '진로 상담', positions: ['현재 위치', '숨겨진 기회', '장애물', '나의 강점', '조언', '미래 방향'], category: ReadingCategory.career, description: '커리어의 흐름과 방향을 깊이 읽습니다', tier: SpreadTier.free),
   generalReading(cardCount: 5, displayName: '일반 상담', positions: ['과거', '현재', '미래', '숨겨진 영향', '조언'], category: ReadingCategory.general, description: '과거, 현재, 미래와 숨겨진 영향까지', tier: SpreadTier.free),
   yesNo(cardCount: 1, displayName: '예/아니오', positions: ['답'], category: ReadingCategory.decision, description: '단순한 질문에 명확한 답', tier: SpreadTier.free),
-  compatibility(cardCount: 6, displayName: '궁합', positions: ['나의 에너지', '상대 에너지', '나의 끌림', '상대의 끌림', '강점', '과제'], category: ReadingCategory.love, description: '두 사람의 궁합을 봅니다', tier: SpreadTier.premium),
-  fiveCard(cardCount: 5, displayName: '파이브 카드', positions: ['현재', '과거', '미래', '원인', '잠재력'], category: ReadingCategory.general, description: '더 깊이 있는 상담', tier: SpreadTier.premium),
+  twoPath(cardCount: 5, displayName: '두 갈래 길', positions: ['현재 상황', '선택지 A', '선택지 A 결과', '선택지 B', '선택지 B 결과'], category: ReadingCategory.decision, description: '두 가지 선택 사이에서 길을 찾습니다', tier: SpreadTier.free),
+  compatibility(cardCount: 6, displayName: '궁합', positions: ['나의 에너지', '상대 에너지', '나의 끌림', '상대의 끌림', '강점', '과제'], category: ReadingCategory.love, description: '두 사람의 궁합을 봅니다', tier: SpreadTier.free),
+  fiveCard(cardCount: 5, displayName: '파이브 카드', positions: ['현재', '과거', '미래', '원인', '잠재력'], category: ReadingCategory.general, description: '더 깊이 있는 상담', tier: SpreadTier.free),
   celticCross(cardCount: 10, displayName: '켈틱 크로스', positions: ['현재', '장애물', '기반', '과거', '가능성', '미래', '태도', '환경', '희망과 두려움', '최종 결과'], category: ReadingCategory.general, description: '10장으로 깊이 있는 상담', tier: SpreadTier.pro);
 
   const SpreadType({required this.cardCount, required this.displayName, required this.positions, required this.category, required this.description, required this.tier});

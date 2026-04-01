@@ -75,34 +75,47 @@ class EdgeFunctionAiClient implements AiClient {
 
     // Parse SSE stream: lines starting with "data: "
     final buffer = StringBuffer();
+    var hasContent = false;
 
-    await for (final chunk in response.stream
-        .transform(utf8.decoder)
-        .timeout(const Duration(seconds: 60))) {
-      if (_isCancelled) return;
-      buffer.write(chunk);
-      final raw = buffer.toString();
-      final lines = raw.split('\n');
-      // Keep last potentially incomplete line in buffer
-      buffer.clear();
-      buffer.write(lines.removeLast());
+    try {
+      await for (final chunk in response.stream
+          .transform(utf8.decoder)
+          .timeout(const Duration(seconds: 45))) {
+        if (_isCancelled) return;
+        buffer.write(chunk);
+        final raw = buffer.toString();
+        final lines = raw.split('\n');
+        // Keep last potentially incomplete line in buffer
+        buffer.clear();
+        buffer.write(lines.removeLast());
 
-      for (final line in lines) {
-        if (!line.startsWith('data: ')) continue;
-        final jsonStr = line.substring(6).trim();
-        if (jsonStr.isEmpty) continue;
+        for (final line in lines) {
+          if (!line.startsWith('data: ')) continue;
+          final jsonStr = line.substring(6).trim();
+          if (jsonStr.isEmpty) continue;
 
-        try {
-          final data = jsonDecode(jsonStr) as Map<String, dynamic>;
-          final text = data['text'] as String? ?? '';
-          final done = data['done'] as bool? ?? false;
-          if (text.isNotEmpty) yield text;
-          if (done) return;
-        } catch (e) {
-          log('Malformed SSE line: $jsonStr', name: 'EdgeFunctionAiClient', error: e);
+          try {
+            final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+            final text = data['text'] as String? ?? '';
+            final done = data['done'] as bool? ?? false;
+            if (text.isNotEmpty) {
+              hasContent = true;
+              yield text;
+            }
+            if (done) return;
+          } catch (e) {
+            log('Malformed SSE line: $jsonStr', name: 'EdgeFunctionAiClient', error: e);
+          }
         }
       }
+    } on TimeoutException {
+      log('SSE stream timed out (hasContent=$hasContent)', name: 'EdgeFunctionAiClient');
+      // Stream timed out — if we got some content, treat as complete
+      if (!hasContent) {
+        throw TimeoutException('SSE stream produced no content within 45s');
+      }
     }
+    // Stream ended without done:true — normal when connection closes
   }
 
   @override

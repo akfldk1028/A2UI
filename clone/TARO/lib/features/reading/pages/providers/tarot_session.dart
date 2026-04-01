@@ -6,6 +6,8 @@ import 'package:logging/logging.dart';
 
 import '../../../../core/config/ai_config.dart';
 import '../../../../core/services/cache_service.dart';
+import '../../../../core/services/supabase_service.dart';
+import '../../../../core/tts/tts_service.dart';
 import '../../../../models/reading_category.dart';
 import '../../../../models/spread_type.dart';
 import '../../prompts/prompt_builder.dart';
@@ -17,6 +19,7 @@ import '../../services/ai_client.dart';
 import '../../services/transport.dart';
 
 enum ConsultationPhase { question, personaPick, picking, reading, chatting }
+enum ReadingMode { manual, auto }
 
 final tarotSessionProvider =
     ChangeNotifierProvider.autoDispose<TarotSession>((ref) {
@@ -51,6 +54,13 @@ class TarotSession extends ChangeNotifier {
   List<String> _requestedPositions = [];
   List<String> get requestedPositions => List.unmodifiable(_requestedPositions);
 
+  String _drawContext = 'initial';
+  String get drawContext => _drawContext;
+
+  /// Number of cards in the original spread (before additional draws).
+  int? _initialCardCount;
+  int? get initialCardCount => _initialCardCount;
+
   String? _userQuestion;
   String get userQuestion => _userQuestion ?? '';
 
@@ -74,6 +84,56 @@ class TarotSession extends ChangeNotifier {
 
   int _revealedCount = 0;
 
+  ReadingMode _readingMode = ReadingMode.manual;
+  ReadingMode get readingMode => _readingMode;
+  bool _autoReading = false;
+  bool get isAutoReading => _autoReading;
+  final List<String> _pendingSpokenTexts = [];
+
+  /// Set reading mode before starting card interpretations.
+  void setReadingMode(ReadingMode mode) {
+    _readingMode = mode;
+    notifyListeners();
+  }
+
+  /// Start auto-reading: reveals and interprets cards one by one.
+  /// [onReveal] flips the card in the UI.
+  /// [onSpeak] plays TTS and returns when finished.
+  Future<void> startAutoReading({
+    required void Function(int cardIndex) onReveal,
+    required Future<void> Function(String text) onSpeak,
+  }) async {
+    _autoReading = true;
+    notifyListeners();
+
+    for (var i = 0; i < _allDrawnCards.length && _autoReading; i++) {
+      if (_revealedCount > i) continue;
+
+      _pendingSpokenTexts.clear();
+      onReveal(i);
+      await interpretCard(i);
+
+      // Speak all collected texts (TarotCard interpretation + OracleMessage)
+      for (final text in _pendingSpokenTexts) {
+        if (!_autoReading) break;
+        await onSpeak(text);
+      }
+
+      // Pause between cards
+      if (_autoReading && i < _allDrawnCards.length - 1) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+    }
+
+    _autoReading = false;
+    notifyListeners();
+  }
+
+  void stopAutoReading() {
+    _autoReading = false;
+    notifyListeners();
+  }
+
   // --- GenUI state ---
   GenUiHost? get host => _conversation?.host;
   bool get isProcessing => _conversation?.isProcessing.value ?? false;
@@ -93,10 +153,23 @@ class TarotSession extends ChangeNotifier {
     _contentGenerator = TaroContentGenerator(
       aiClient: _client,
       systemPrompt: systemPrompt,
-      onDrawCardsDetected: (count, positions) {
+      onSpokenTextDetected: (text) {
+        _pendingSpokenTexts.add(text);
+      },
+      onDrawCardsDetected: (count, positions, context) {
         _requestedDrawCount = count;
         _requestedPositions = positions;
-        _phase = ConsultationPhase.picking;
+        _drawContext = context;
+        if (context == 'new_topic') {
+          _allDrawnCards.clear();
+          _revealedCount = 0;
+          _initialCardCount = null;
+          // New topic → full flow: question → persona → picking
+          _phase = ConsultationPhase.question;
+        } else {
+          // Additional → straight to picking (shuffle)
+          _phase = ConsultationPhase.picking;
+        }
         notifyListeners();
       },
     );
@@ -122,6 +195,7 @@ class TarotSession extends ChangeNotifier {
     _locale = locale;
     _category = category;
     _phase = ConsultationPhase.question;
+    TtsService.instance.setLocale(locale);
     notifyListeners();
   }
 
@@ -135,6 +209,7 @@ class TarotSession extends ChangeNotifier {
   /// User confirmed persona → transition to card picking.
   void confirmPersona() {
     _phase = ConsultationPhase.picking;
+    TtsService.instance.setVoice(_persona.voiceId);
     notifyListeners();
   }
 
@@ -148,6 +223,9 @@ class TarotSession extends ChangeNotifier {
       ..clear()
       ..addAll(cards);
     _revealedCount = 0;
+    _initialCardCount = null;
+    final isNewTopic = _drawContext == 'new_topic';
+    _drawContext = 'initial';
     _phase = ConsultationPhase.reading;
     notifyListeners();
 
@@ -155,9 +233,10 @@ class TarotSession extends ChangeNotifier {
 
     await _sendToAi(
       '${langHint}PERSONA: ${_persona.aiPrompt}\n'
+      '${isNewTopic ? "The seeker wants to explore a NEW TOPIC. Previous cards have been cleared.\n" : ""}'
       'The seeker drew ${cards.length} cards for a ${spread.displayName} spread.\n'
-      'Give a BRIEF OracleMessage (1-2 sentences) saying the cards are laid out. '
-      'Invite them to tap a card to begin the reading. Do NOT interpret any cards yet.',
+      'Give a BRIEF OracleMessage (1-2 sentences) saying the cards are revealed. '
+      'Say you will read them one by one. Do NOT interpret any cards yet.',
     );
   }
 
@@ -174,15 +253,19 @@ class TarotSession extends ChangeNotifier {
     final isLast = _revealedCount >= _allDrawnCards.length;
     final langHint = _locale != 'en' ? '[Please respond in language code: $_locale]\n' : '';
 
+    final isSingleCard = _allDrawnCards.length == 1;
+
     try {
       await _sendToAi(
         '${langHint}PERSONA: ${_persona.aiPrompt}\n'
         'SEEKER\'S QUESTION: "${_userQuestion ?? "general reading"}"\n'
         'The seeker revealed: ${card.card.name} in the "${card.position}" position'
         '${card.isReversed ? " (Reversed)" : ""}.\n'
-        'Interpret ONLY this one card with a TarotCard component + brief OracleMessage.\n'
-        'Interpret specifically in context of their question.\n'
-        '${isLast ? "This is the LAST card. After interpreting, also give a ReadingSummary tying all cards to their question, then a DrawPrompt." : "Do NOT give a summary yet — more cards to come."}',
+        '${isSingleCard
+            ? 'This is the ONLY card. Give a DETAILED TarotCard interpretation (5-8 sentences). Then a warm OracleMessage with advice.'
+            : isLast
+                ? 'This is the LAST card. Interpret with TarotCard + OracleMessage. Then give a comprehensive OracleMessage tying ALL cards together with advice.'
+                : 'Interpret ONLY this one card with a TarotCard component + brief OracleMessage. Do NOT give a summary yet — more cards to come.'}',
       );
     } finally {
       _activeCardIndex = -1;
@@ -195,16 +278,27 @@ class TarotSession extends ChangeNotifier {
   }
 
   void _saveReadingHistory() {
-    final cache = CacheService.instance;
-    cache.saveReading(
+    final cardMaps = _allDrawnCards.map((c) => {
+      'name': c.card.name,
+      'position': c.position,
+      'isReversed': c.isReversed,
+    }).toList();
+
+    // Local (Hive)
+    CacheService.instance.saveReading(
       question: _userQuestion ?? '',
-      cards: _allDrawnCards.map((c) => {
-        'name': c.card.name,
-        'position': c.position,
-        'isReversed': c.isReversed,
-      }).toList(),
+      cards: cardMaps,
       persona: _persona.name,
       timestamp: DateTime.now(),
+    );
+
+    // Remote (Supabase)
+    SupabaseService.instance.saveReading(
+      question: _userQuestion ?? '',
+      cards: cardMaps,
+      persona: _persona.name,
+      spreadType: _currentSpread?.name,
+      locale: _locale,
     );
   }
 
@@ -220,10 +314,15 @@ class TarotSession extends ChangeNotifier {
     await _conversation!.sendRequest(message);
   }
 
-  /// Additional card draw.
-  Future<void> handleAdditionalDraw(List<DrawnCard> cards) async {
+  /// Additional card draw — adds to existing spread.
+  /// [onRevealed] callback to mark cards as revealed in the UI.
+  Future<void> handleAdditionalDraw(List<DrawnCard> cards, {void Function(int startIndex, int count)? onRevealed}) async {
+    _initialCardCount ??= _allDrawnCards.length;
+    final startIdx = _allDrawnCards.length;
     _allDrawnCards.addAll(cards);
-    _activeCardIndex = _allDrawnCards.length - cards.length;
+    _activeCardIndex = startIdx;
+    _phase = ConsultationPhase.reading;
+    onRevealed?.call(startIdx, cards.length);
     notifyListeners();
 
     final langHint = _locale != 'en' ? '[Please respond in language code: $_locale]\n' : '';
@@ -231,24 +330,37 @@ class TarotSession extends ChangeNotifier {
     final buffer = StringBuffer();
     buffer.writeln('${langHint}PERSONA: ${_persona.aiPrompt}');
     buffer.writeln('SEEKER\'S QUESTION: "${_userQuestion ?? "general reading"}"');
-    buffer.writeln('The seeker drew ${cards.length} additional card(s):');
+    buffer.writeln('The seeker drew ${cards.length} additional clarification card(s):');
     for (final drawn in cards) {
-      buffer.write('- ${drawn.card.name}');
+      buffer.write('- ${drawn.card.name} in "${drawn.position}"');
       if (drawn.isReversed) buffer.write(' (Reversed)');
       buffer.writeln();
     }
-    buffer.writeln('Interpret in context of the previous reading and their question.');
+    buffer.writeln('Interpret these cards in context of the previous reading and their question.');
+    buffer.writeln('After interpreting, transition to chatting.');
 
-    await _sendToAi(buffer.toString());
-    _activeCardIndex = -1;
-    notifyListeners();
+    try {
+      await _sendToAi(buffer.toString());
+    } finally {
+      _activeCardIndex = -1;
+      _phase = ConsultationPhase.chatting;
+      notifyListeners();
+    }
   }
 
   /// AI requested more cards to be drawn.
-  void requestMoreCards(int count, List<String> positions) {
+  void requestMoreCards(int count, List<String> positions, {String context = 'additional'}) {
     _requestedDrawCount = count;
     _requestedPositions = positions;
-    _phase = ConsultationPhase.picking;
+    _drawContext = context;
+    if (context == 'new_topic') {
+      _allDrawnCards.clear();
+      _revealedCount = 0;
+      _initialCardCount = null;
+      _phase = ConsultationPhase.question;
+    } else {
+      _phase = ConsultationPhase.picking;
+    }
     notifyListeners();
   }
 
@@ -263,7 +375,12 @@ class TarotSession extends ChangeNotifier {
   void _onSurfaceAdded(SurfaceAdded update) {
     final exists = _messages.any((m) => m.surfaceId == update.surfaceId);
     if (!exists) {
-      _messages.add(TarotMessage(isUser: false, surfaceId: update.surfaceId));
+      final componentName = _contentGenerator?.surfaceComponentNames[update.surfaceId];
+      _messages.add(TarotMessage(
+        isUser: false,
+        surfaceId: update.surfaceId,
+        componentName: componentName,
+      ));
       notifyListeners();
     }
 

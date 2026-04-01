@@ -87,6 +87,19 @@ class TarotDeck {
     return copy;
   }
 
+  /// Find card by name (case-insensitive).
+  TarotCardData? findByName(String name) {
+    final lower = name.toLowerCase().trim();
+    return cards.cast<TarotCardData?>().firstWhere(
+      (c) => c!.name.toLowerCase() == lower,
+      orElse: () => null,
+    );
+  }
+
+  /// Singleton for lookups after first load.
+  static TarotDeck? _instance;
+  static TarotDeck? get instance => _instance;
+
   static Future<TarotDeck> load() async {
     final jsonStr = await rootBundle.loadString('assets/tarot_data.json');
     final data = jsonDecode(jsonStr) as Map<String, dynamic>;
@@ -94,6 +107,8 @@ class TarotDeck {
     final cards = interpretations
         .map((e) => TarotCardData.fromJson(e as Map<String, dynamic>))
         .toList();
-    return TarotDeck(cards);
+    final deck = TarotDeck(cards);
+    _instance = deck;
+    return deck;
   }
 }

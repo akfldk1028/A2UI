@@ -1,7 +1,9 @@
 class TarotMessage {
-  TarotMessage({this.text, this.surfaceId, this.isUser = false});
+  TarotMessage({this.text, this.surfaceId, this.isUser = false, this.componentName});
 
   final String? text;
   final String? surfaceId;
   final bool isUser;
+  /// Primary A2UI component name (e.g. 'TarotCard', 'OracleMessage').
+  final String? componentName;
 }

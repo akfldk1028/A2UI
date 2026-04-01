@@ -1,57 +1,70 @@
-# TARO 핸드오프 — 2026-03-27
+# TARO 핸드오프 — 2026-04-01 (세션 3)
 
 ## Goal
 
-A2UI 기반 타로 상담 앱. 실제 타로 상담사 앞에 앉아서 카드를 뽑고, 질문에 맞는 해석을 받고, 대화를 계속하는 경험을 구현.
+A2UI 기반 타로 상담 앱. 카드 뽑기 → 전부 앞면 펼치기 → AI가 한장씩 해석 + ElevenLabs TTS 자동 재생. 채팅 모드/TTS 모드/마이크 음성 입력 지원.
 
 ---
 
-## 이번 세션 (2026-03-27)
+## 이번 세션에서 한 것 (세션 3)
 
-### 백엔드 구축 — SJ ai-gemini 패턴 미러링
+### 1. P1 스프레드 3개 추가
+- `twoPath` (두 갈래 길, 5장, decision) — 새 스프레드
+- `compatibility` (궁합, 6장) — premium → free
+- `fiveCard` (파이브카드, 5장) — premium → free
+- `decision_prompt.dart`에 두 갈래 길 전용 AI 프롬프트
+- `menu_screen.dart` — 스프레드 2개 이상이면 선택 화면으로
 
-1. **Supabase MCP 인증** — `supabase-taro` (`niagjmqffibeuetxxbxp`) 완료
-2. **DB 테이블 3개** — `tarot_readings`, `tarot_messages`, `tarot_daily_usage` + 트리거 + RPC
-3. **Edge Function `ai-tarot` v2** — SSE 스트리밍, thought 필터링, 반복 감지, 비용 기록
-4. **테스트 성공** — curl SSE 확인 (200, 3.4초)
-5. **env.json** — SUPABASE_URL + SUPABASE_ANON_KEY + GEMINI_API_KEY
-6. **Supabase secret** — GEMINI_API_KEY 등록
+### 2. Gemini Live API WebSocket 연결 성공
+- 모델명: `gemini-2.5-flash-native-audio-preview-12-2025` (raw WebSocket 전용)
+- `responseModalities: ['AUDIO']` only — TEXT 포함하면 에러
+- setup 키: `setup` (SDK의 `config`가 아님), `generationConfig` 래핑 필수
+- **핵심 버그 수정**: WebSocket 응답이 `Uint8List`로 옴 → `utf8.decode(raw)` 필요 (기존 `raw as String` 캐스팅 실패)
+- Python으로 검증 → Dart에서 `setupComplete` 수신 확인됨
+- `tts_service.dart` — `configureLive()`, `startLiveSession()`, `stopLiveSession()`, `_pcmToWav()`, `_handleLiveEvent()`, `_flushLiveAudio()`
+- `main.dart` — GEMINI_API_KEY 있으면 자동 configureLive
 
-### 3차 코드 리뷰 수정
+### 3. 마이크 버튼 + STT 추가
+- `speech_to_text: ^7.0.0` 패키지 추가
+- Android 권한: `RECORD_AUDIO`, `INTERNET`, `BLUETOOTH`, `BLUETOOTH_CONNECT`, `RecognitionService` query
+- `chat_input_field.dart` — 텍스트 없으면 마이크 아이콘, 있으면 전송 버튼
+- `consultation_screen.dart` — `_toggleMic()`: Live WebSocket 세션 + STT 동시 시작
+- 마이크 탭 → 빨간 버튼(녹음) → 인식 완료 → 채팅에 텍스트 전송 → AI 응답
+- 모든 phase에서 마이크 버튼 사용 가능
+- **에뮬레이터 이슈**: `error_speech_timeout` — PC 마이크 미연결. `adb emu avd hostmicon` 필요. 실기기 테스트 권장.
 
-| 파일 | 변경 |
-|------|------|
-| `tarot_session.dart` | `host` nullable, `_client.dispose()` 추가 |
-| `consultation_screen.dart` | host null 체크, `_cardsSubmitted` 중복 호출 가드 |
-| `persona_selector.dart` | locale 기반 ko/en 분기 |
-| `cache_service.dart` | 미사용 응답 캐시 데드 코드 삭제 |
-| Edge Function | `detectRepetition` 정규식 backreference 수정 |
+### 4. 카드 UI 수정
+- `spread_display_widget.dart` — 화면 비율 기반 카드 크기 (최대 56px, screenW 동적 계산)
+- `consultation_screen.dart` — 카드 영역 30% 제한 (`ConstrainedBox`)
+- 포지션 라벨 overflow 수정 (`TextOverflow.ellipsis`)
+
+### 5. i18n
+- 17개 언어 `liveMode`/`liveModeDesc`/`listening` 키 추가
+- 페르소나 기반 텍스트 ("Gemini" 미노출, "오라클과 음성 대화" 등)
 
 ---
 
-## 이전 세션 완료 작업
+## 변경 파일 목록 (세션 3)
 
-### SJ 구조 정렬 + UI
-- `core/`, `shared/`, `router/`, `i18n/` → SJ 동일 패턴
-- Riverpod 3.0 + go_router + easy_localization (17개 언어)
-- Splash → Menu → ConsultationScreen (단일 상담 화면)
-
-### 상담 Phase 상태 머신
 ```
-question → personaPick → picking → reading → chatting
+models/spread_type.dart                — twoPath 추가, compatibility/fiveCard free화
+features/reading/prompts/decision_prompt.dart — 두 갈래 길 프롬프트
+features/menu/pages/screens/menu_screen.dart  — 스프레드 선택 화면 분기
+
+core/tts/tts_service.dart              — live 모드 전체 (configureLive, startLiveSession, _pcmToWav, _handleLiveEvent)
+core/tts/live/live_client.dart         — 모델명 수정, AUDIO only, Uint8List→utf8.decode, setup 디버그 로그
+core/tts/live/live_session.dart        — 모델명 수정
+
+features/reading/pages/screens/consultation_screen.dart — 마이크 버튼(_toggleMic), STT, 카드 30% 제한
+features/reading/pages/widgets/chat_input_field.dart    — onMicTap, isListening, 마이크/전송 토글
+features/reading/pages/widgets/spread_display_widget.dart — 동적 카드 크기, ellipsis
+
+main.dart              — configureLive(GEMINI_API_KEY)
+pubspec.yaml           — speech_to_text: ^7.0.0
+android/app/src/main/AndroidManifest.xml — RECORD_AUDIO, BLUETOOTH, RecognitionService query
+
+i18n/{17 langs}/reading.json — liveMode, liveModeDesc, listening
 ```
-
-### A2UI 카탈로그 (5개)
-TarotCard, ReadingSummary, SpreadPicker, OracleMessage, DrawPrompt
-
-### 페르소나 (4종)
-mystic(신비 현자), analyst(분석가), friend(친구), direct(직설가)
-
-### v2 UI 플로우
-큰 세리프 텍스트 인사 → 추천 칩 → 페르소나 선택 → 카드 팬 → AI 해석 → 채팅
-
-### 캐싱
-Hive — 리딩 히스토리 (최근 20개), NotoSerifKR 폰트 번들링
 
 ---
 
@@ -60,105 +73,75 @@ Hive — 리딩 히스토리 (최근 20개), NotoSerifKR 폰트 번들링
 ```
 Flutter Client
   ├── env.json (SUPABASE_URL, SUPABASE_ANON_KEY, GEMINI_API_KEY)
-  ├── AiConfig.useEdgeFunction → true (env에 Supabase 설정 있으면)
-  ├── EdgeFunctionAiClient → POST /functions/v1/ai-tarot (SSE)
-  ├── GeminiAiClient → 직접 Gemini API (fallback)
-  └── TaroContentGenerator → JSON 블록 파싱 → GenUI 렌더링
+  ├── main.dart — TTS remote + live 자동 설정
+  ├── core/tts/
+  │   ├── tts_service.dart — 3모드(local/remote/live), setVoice, startLiveSession, _pcmToWav
+  │   ├── tts_config.dart — 17개 locale 속도/피치
+  │   ├── providers/ — local(flutter_tts), remote(Supabase→ElevenLabs)
+  │   ├── remote/ — TtsRemoteClient, TtsAudioPlayer(임시파일!), TTSRequest(style지원)
+  │   └── live/ — Gemini Live WebSocket (setupComplete 확인됨!)
+  │       ├── live_client.dart — 모델: gemini-2.5-flash-native-audio-preview-12-2025
+  │       ├── live_session.dart — 고수준 래퍼
+  │       └── live_types.dart — LiveEvent, LiveConfig, ToolHandler
+  ├── models/
+  │   ├── tarot_card_data.dart, reading_category.dart
+  │   ├── spread_type.dart — 11개 스프레드 (free 9 + pro 1 + celticCross)
+  │   └── oracle_persona.dart — voiceId (matilda/river/shimmer/adam)
+  ├── features/reading/
+  │   ├── catalog/ — OracleMessage, TarotCard, DrawCards
+  │   ├── services/ — transport.dart, ai_client.dart
+  │   ├── prompts/ — base, love, career, fortune, general, decision
+  │   └── pages/
+  │       ├── screens/consultation_screen.dart — _toggleMic(), _initSpeech(), STT+Live
+  │       ├── widgets/chat_input_field.dart — 마이크/전송 토글
+  │       └── widgets/spread_display_widget.dart — 동적 크기
+  └── i18n/ (17 languages)
 
 Supabase (niagjmqffibeuetxxbxp)
-  ├── Edge Function: ai-tarot v2
-  │   ├── Gemini streamGenerateContent (SSE)
-  │   ├── thought 필터링 + 반복 감지
-  │   └── increment_tarot_usage RPC
-  ├── DB: tarot_readings, tarot_messages, tarot_daily_usage
-  └── Secret: GEMINI_API_KEY
-```
-
-## 프로젝트 파일 구조
-
-```
-clone/TARO/lib/
-├── main.dart, app.dart
-├── core/ (config, constants, services, theme)
-├── models/tarot_card_data.dart
-├── shared/widgets/ (card_face, flip_card)
-├── i18n/ (17개 언어 × 6 JSON + loader)
-├── router/ (routes, app_router)
-└── features/
-    ├── splash/, menu/
-    └── reading/
-        ├── models/ (tarot_message, oracle_persona, reading_record)
-        ├── services/ (ai_client, transport)
-        ├── catalog/ (5개 A2UI 컴포넌트 + tarot_catalog)
-        └── pages/
-            ├── providers/tarot_session.dart
-            ├── screens/consultation_screen.dart
-            └── widgets/ (chat_input_field, persona_selector, question_phase, persona_pick_phase, dramatic_text)
+  ├── Edge Function: ai-tarot (SSE, Gemini 3 Flash)
+  ├── Edge Function: tts v6 (ElevenLabs, 7 voices)
+  ├── DB: tarot_readings
+  └── Secrets: GEMINI_API_KEY, ELEVENLABS_API_KEY
 ```
 
 ---
 
-## What Worked / What Didn't
+## Next Steps (우선순위)
 
-### Worked
-- 수학적 radius 계산 → 카드 절대 잘리지 않음
-- Phase 상태 머신 → 깔끔한 전환
-- 한 장씩 해석 → 상담 느낌
-- SJ Edge Function 패턴 미러링 → 검증된 패턴 재사용
-- EdgeFunctionAiClient가 이미 구현되어 있어 env.json만으로 전환
+### 1. 실기기 STT 테스트
+- 에뮬레이터에서 STT `error_speech_timeout` — PC 마이크 미전달
+- 실기기 USB 디버깅으로 마이크→STT→채팅→AI 응답 플로우 검증
+- 에뮬레이터: `adb emu avd hostmicon` 후 재시도
 
-### Didn't Work (반복하지 말 것)
-- 하드코딩 radius/offset → 항상 수학적 역산
-- AI에 모든 카드 한번에 전송 → 한 장씩
-- 별도 화면(CardPicker→CardReveal→Reading) → 단일 ConsultationScreen
-- `detectRepetition`에서 backreference 빠뜨림 → 정규식은 SJ 원본 복사 후 검증
+### 2. Live 모드 양방향 음성 대화
+- 현재: 마이크 → STT → 텍스트 전송 → AI(SSE) → ElevenLabs TTS
+- 다음: 마이크 PCM → Gemini Live WebSocket → 음성 응답 직접 재생
+- `record` 패키지로 마이크 PCM 캡처 → `liveSession.pushAudio()`
+- Gemini 응답 오디오 → `_flushLiveAudio()` → WAV → just_audio
+
+### 3. 앱 런칭 준비
+- Android/iOS 빌드, 앱 아이콘, 스플래시
 
 ---
 
-## Next Steps
+## 실행 방법
 
-### 1. E2E 테스트 (최우선)
 ```bash
-cd clone/TARO
-flutter pub get
-dart run build_runner build --delete-conflicting-outputs
-flutter run -d chrome --dart-define-from-file=env.json
+cd D:/Data/33_A2UI/A2UI/clone/TARO
+# 에뮬레이터 마이크 활성화 (STT용)
+adb emu avd hostmicon
+# 앱 실행
+flutter run -d emulator-5554 --dart-define-from-file=env.json
 ```
-전체 플로우: question → personaPick → picking → reading → chatting
 
-### 2. DB 연동
-- Hive 로컬 → Supabase `tarot_readings`/`tarot_messages` 서버 저장 추가
-- Supabase Auth 도입 (user_id FK) — 익명 Auth or 소셜 로그인
-- Edge Function `verify_jwt` → true
+## 참고
 
-### 3. 구조 개선
-- TarotSession → Riverpod Provider 전환
-- ConsultationScreen 478줄 → 위젯 분리
-- Edge Function 실패 시 GeminiAiClient fallback
-
-### 4. 앱 런칭 전
-- 모바일 빌드 (Android/iOS)
-- 프롬프트 튜닝 (Oracle 응답 품질)
-- 앱 아이콘/스플래시 이미지
-
----
-
-## 주의사항
-
-- **MCP**: `mcp__supabase-taro__*` 전용 (`mcp__supabase__`는 SJ)
-- **env.json**: gitignored — 커밋 금지
-- **Edge Function secrets**: MCP로 설정 불가, Dashboard에서만 관리
-- **Gemini 3 Flash**: 반복 출력 known issue — Edge Function에서 감지/중단 처리됨
-
-## 메모리 참조
-
-경로: `D:\DevCache\claude-data\projects\D--Data-33-A2UI-A2UI\memory\`
-
-| 파일 | 내용 |
-|------|------|
-| `taro/overview.md` | 프로젝트 전체 개요 |
-| `taro/backend_setup.md` | Edge Function + DB + RPC 상세 |
-| `taro/consultation_flow.md` | 상담 Phase 상태 머신 |
-| `taro/code_review_log.md` | 1차/2차/3차 리뷰 전체 기록 |
-| `taro/next_steps.md` | 다음 작업 목록 |
-| `taro/supabase_mcp_setup.md` | MCP 인증 + 프로젝트 정보 |
+- 메모리: `D:\DevCache\claude-data\projects\D--Data-33-A2UI-A2UI\memory\`
+- Supabase MCP: `mcp__supabase-taro__*`
+- **StreamAudioSource 쓰면 안 됨** — Android ExoPlayer Source error
+- **JSON 키 `audioBase64`** — `audio` 아님
+- **WebSocket 응답 `Uint8List`** — `utf8.decode()` 필수, `as String` 불가
+- **responseModalities `AUDIO` only** — `TEXT` 포함 시 `1007 Cannot extract voices` 에러
+- **모델명** — `gemini-2.5-flash-native-audio-preview-12-2025` (raw WS), `gemini-live-2.5-flash-preview` (JS SDK only)
+- Live API 상세: `memory/taro/live/gemini_live_findings.md`
+- STT 설정: `memory/taro/live/stt_setup.md`

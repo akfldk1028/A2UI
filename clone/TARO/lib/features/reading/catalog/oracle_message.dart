@@ -3,6 +3,7 @@ import 'package:genui/genui.dart';
 import 'package:json_schema_builder/json_schema_builder.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/tts/widgets/tts_button.dart';
 
 final _schema = S.object(
   properties: {
@@ -59,65 +60,39 @@ class _OracleMessageWidgetState extends State<_OracleMessageWidget>
 
     return FadeTransition(
       opacity: CurvedAnimation(parent: _anim, curve: Curves.easeOut),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
+      child: Container(
+        margin: const EdgeInsets.only(left: 4, right: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(
+              color: TaroColors.gold.withAlpha(60),
+              width: 2,
+            ),
+          ),
+        ),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Oracle avatar
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    TaroColors.gold.withAlpha(60),
-                    TaroColors.gold.withAlpha(15),
-                  ],
-                ),
-                border: Border.all(
-                  color: TaroColors.gold.withAlpha(80),
-                ),
-              ),
-              child: const Icon(
-                Icons.auto_awesome,
-                size: 18,
-                color: TaroColors.gold,
+            Text(
+              widget.text,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontStyle: FontStyle.italic,
+                color: theme.colorScheme.onSurface.withAlpha(200),
+                height: 1.6,
               ),
             ),
-            const SizedBox(width: 12),
-            // Message
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      TaroColors.gold.withAlpha(12),
-                      theme.colorScheme.surfaceContainerHigh,
-                    ],
-                  ),
-                  border: Border.all(
-                    color: TaroColors.gold.withAlpha(25),
-                  ),
-                ),
-                child: Text(
-                  widget.text,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontStyle: FontStyle.italic,
-                    color: theme.colorScheme.onSurface.withAlpha(220),
-                    height: 1.6,
-                  ),
-                ),
+            if (widget.text.length > 10) ...[
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TtsButton(text: widget.text),
               ),
-            ),
+            ],
           ],
         ),
       ),
     );
   }
 }
+

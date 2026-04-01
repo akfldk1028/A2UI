@@ -12,13 +12,17 @@ class MenuScreen extends StatelessWidget {
   const MenuScreen({super.key});
 
   void _onCategoryTap(BuildContext context, ReadingCategory category) {
-    // 카테고리의 기본 스프레드로 바로 상담 진입
-    // AI가 질문 보고 필요하면 DrawCards로 추가 카드 트리거
-    final defaultSpread = SpreadType.forCategory(category).first;
-    context.push(Routes.consultation, extra: {
-      'category': category,
-      'spreadType': defaultSpread,
-    });
+    final spreads = SpreadType.forCategory(category);
+    if (spreads.length <= 1) {
+      // 스프레드 1개면 바로 상담 진입
+      context.push(Routes.consultation, extra: {
+        'category': category,
+        'spreadType': spreads.first,
+      });
+    } else {
+      // 스프레드 여러 개면 선택 화면
+      context.push(Routes.spreadSelect, extra: {'category': category});
+    }
   }
 
   static List<Color> _categoryGradient(ReadingCategory category) {

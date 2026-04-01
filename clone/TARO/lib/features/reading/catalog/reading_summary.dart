@@ -3,6 +3,7 @@ import 'package:genui/genui.dart';
 import 'package:json_schema_builder/json_schema_builder.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/tts/widgets/tts_button.dart';
 
 final _schema = S.object(
   properties: {
@@ -80,6 +81,14 @@ class _ReadingSummaryWidget extends StatelessWidget {
             ),
             Divider(color: TaroColors.gold.withAlpha(64), height: 24),
             Text(summary, style: theme.textTheme.bodyMedium),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TtsButton(
+                text: '$summary${advice != null ? '\n$advice' : ''}',
+                showLabel: true,
+              ),
+            ),
             if (advice != null && advice!.isNotEmpty) ...[
               const SizedBox(height: 16),
               Container(
@@ -112,3 +121,4 @@ class _ReadingSummaryWidget extends StatelessWidget {
     );
   }
 }
+

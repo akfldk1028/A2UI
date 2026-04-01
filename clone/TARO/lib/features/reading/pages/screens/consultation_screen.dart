@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../../../core/config/ai_config.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/tts/tts_config.dart';
+import '../../../../core/tts/tts_service.dart';
 import '../../../../models/reading_category.dart';
 import '../../../../models/spread_type.dart';
 import '../../../../models/tarot_card_data.dart';
@@ -51,13 +55,43 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
   int _cardCount = 0;
   int _hoveredIndex = -1;
   bool _cardsSubmitted = false;
+  bool _modeChosen = false;
+  bool _isLiveListening = false;
   ConsultationPhase _previousPhase = ConsultationPhase.question;
+
+  // Speech-to-text
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _sttAvailable = false;
 
   @override
   void initState() {
     super.initState();
     _fanAnim = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
     _initSession();
+    _initSpeech();
+  }
+
+  Future<void> _initSpeech() async {
+    _sttAvailable = await _speech.initialize(
+      onError: (e) {
+        debugPrint('[STT] Error: ${e.errorMsg}');
+        if (mounted) setState(() => _isLiveListening = false);
+      },
+      onStatus: (status) {
+        debugPrint('[STT] Status: $status');
+        if (status == 'done' || status == 'notListening') {
+          if (mounted) {
+            setState(() => _isLiveListening = false);
+            // partial result가 남아있으면 전송
+            if (_partialWords.isNotEmpty) {
+              _sendSpeechText(_partialWords);
+              _partialWords = '';
+            }
+          }
+        }
+      },
+    );
+    debugPrint('[STT] Available: $_sttAvailable');
   }
 
   Future<void> _initSession() async {
@@ -87,19 +121,23 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
 
   void _selectCard(int index) {
     final session = ref.read(tarotSessionProvider);
+    final ctx = session.drawContext;
     final requiredCount = session.requestedDrawCount > 0
         ? session.requestedDrawCount
         : widget.spreadType.cardCount;
-    final isAdditional = session.requestedDrawCount > 0;
 
     if (_selectedIndices.contains(index) || _drawnCards.length >= requiredCount) return;
 
-    // For additional draws, use requestedPositions; for initial, use spread positions
-    final position = isAdditional
+    // For additional draws, use requestedPositions; for initial/new_topic, use spread positions
+    final position = ctx == 'additional'
         ? (session.requestedPositions.length > _drawnCards.length
             ? session.requestedPositions[_drawnCards.length]
-            : '추가 카드')
-        : widget.spreadType.positions[_drawnCards.length];
+            : '보충 카드')
+        : (ctx == 'new_topic' && session.requestedPositions.length > _drawnCards.length)
+            ? session.requestedPositions[_drawnCards.length]
+            : (_drawnCards.length < widget.spreadType.positions.length
+                ? widget.spreadType.positions[_drawnCards.length]
+                : '카드 ${_drawnCards.length + 1}');
 
     setState(() {
       _selectedIndices.add(index);
@@ -113,9 +151,21 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
       _cardsSubmitted = true;
       Future.delayed(const Duration(milliseconds: 800), () {
         if (mounted) {
-          if (isAdditional) {
-            session.handleAdditionalDraw(_drawnCards);
+          if (ctx == 'additional') {
+            session.handleAdditionalDraw(_drawnCards, onRevealed: (start, count) {
+              setState(() {
+                for (var i = start; i < start + count; i++) {
+                  _revealedCards.add(i);
+                }
+              });
+            });
           } else {
+            // Reveal ALL cards immediately
+            setState(() {
+              for (var i = 0; i < _drawnCards.length; i++) {
+                _revealedCards.add(i);
+              }
+            });
             session.handleCardsDrawn(_drawnCards, widget.spreadType);
           }
         }
@@ -123,29 +173,79 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
     }
   }
 
+  final List<int> _pendingInterpretations = [];
+
   void _onCardFlipped(int idx) {
     if (_revealedCards.contains(idx)) return;
+    final session = ref.read(tarotSessionProvider);
+    if (session.isProcessing) {
+      // Queue interpretation for when AI finishes current work
+      if (!_pendingInterpretations.contains(idx)) {
+        _pendingInterpretations.add(idx);
+      }
+      return;
+    }
     setState(() => _revealedCards.add(idx));
-    ref.read(tarotSessionProvider).interpretCard(idx);
+    session.interpretCard(idx);
+  }
+
+  void _processPendingInterpretations() {
+    final session = ref.read(tarotSessionProvider);
+    if (!session.isProcessing && _pendingInterpretations.isNotEmpty) {
+      final idx = _pendingInterpretations.removeAt(0);
+      if (!_revealedCards.contains(idx)) {
+        setState(() => _revealedCards.add(idx));
+        session.interpretCard(idx);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final session = ref.watch(tarotSessionProvider);
     _checkAutoScroll(session.messages.length);
+    // Process queued card interpretations when AI becomes available
+    if (!session.isProcessing && _pendingInterpretations.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _processPendingInterpretations();
+      });
+    }
     final theme = Theme.of(context);
     final size = MediaQuery.of(context).size;
     final isMobile = size.width < 500;
     final phase = session.phase;
 
-    // Detect picking re-entry from chatting (AI-triggered DrawCards)
-    if (phase == ConsultationPhase.picking && _previousPhase == ConsultationPhase.chatting) {
+    // Detect new_topic: chatting/reading → question (AI triggered DrawCards with new_topic)
+    if (phase == ConsultationPhase.question &&
+        (_previousPhase == ConsultationPhase.chatting || _previousPhase == ConsultationPhase.reading)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           setState(() {
             _selectedIndices.clear();
             _drawnCards.clear();
             _cardsSubmitted = false;
+            _modeChosen = false;
+            _revealedCards.clear();
+            _pendingInterpretations.clear();
+            _shuffled = _deck!.shuffled();
+            _cardCount = _shuffled.length;
+          });
+        }
+      });
+    }
+
+    // Detect additional: chatting/reading → picking (AI triggered DrawCards with additional)
+    if (phase == ConsultationPhase.picking &&
+        (_previousPhase == ConsultationPhase.chatting || _previousPhase == ConsultationPhase.reading)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _selectedIndices.clear();
+            _drawnCards.clear();
+            _cardsSubmitted = false;
+            _modeChosen = false;
+            _shuffled = _deck!.shuffled();
+            _cardCount = _shuffled.length;
             _fanAnim.forward(from: 0);
           });
         }
@@ -195,13 +295,17 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
                   isMobile: isMobile,
                 )),
               ] else ...[
-                // reading / chatting \u2014 spread + messages
-                SpreadDisplayWidget(
-                  drawnCards: session.allDrawnCards.isEmpty ? _drawnCards : session.allDrawnCards,
-                  activeCardIndex: session.activeCardIndex,
-                  revealedCards: _revealedCards,
-                  onCardTap: _onCardFlipped,
-                  isMobile: isMobile,
+                // reading / chatting — spread 30% + messages 70%
+                ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: size.height * 0.3),
+                  child: SpreadDisplayWidget(
+                    drawnCards: session.allDrawnCards.isEmpty ? _drawnCards : session.allDrawnCards,
+                    activeCardIndex: session.activeCardIndex,
+                    revealedCards: _revealedCards,
+                    onCardTap: session.readingMode == ReadingMode.auto ? null : _onCardFlipped,
+                    isMobile: isMobile,
+                    initialCardCount: session.initialCardCount,
+                  ),
                 ),
                 Expanded(child: MessageListWidget(
                   messages: session.messages,
@@ -210,6 +314,12 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
                   host: session.host,
                   buildPulsingDots: _buildPulsingDots,
                 )),
+                // Mode selector — show after first AI message, before card tapping
+                if (phase == ConsultationPhase.reading &&
+                    !_modeChosen &&
+                    session.messages.isNotEmpty &&
+                    !session.isProcessing)
+                  _buildModeSelector(theme),
               ],
 
               // Chat input (hidden during personaPick and picking)
@@ -227,6 +337,8 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
                     }
                     _scrollToBottom();
                   },
+                  onMicTap: _toggleMic,
+                  isListening: _isLiveListening,
                 ),
             ],
           ),
@@ -308,6 +420,147 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
     );
   }
 
+  void _waitAndStartAutoReading() {
+    // Wait for AI to finish the initial "cards are laid out" message, then auto-read
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return false;
+      final session = ref.read(tarotSessionProvider);
+      if (!session.isProcessing && session.messages.isNotEmpty) {
+        _startAutoReading();
+        return false; // stop polling
+      }
+      return true; // keep polling
+    });
+  }
+
+  String _partialWords = '';
+  bool _micToggling = false;
+
+  Future<void> _toggleMic() async {
+    if (_micToggling) return;
+    _micToggling = true;
+    try {
+      if (_isLiveListening) {
+        _speech.stop();
+        await TtsService.instance.stopLiveSession();
+        setState(() => _isLiveListening = false);
+        if (_partialWords.isNotEmpty) {
+          _sendSpeechText(_partialWords);
+          _partialWords = '';
+        }
+        return;
+      }
+
+      // 1. Live WebSocket 세션 시작 (비동기, UI 블로킹 방지)
+      debugPrint('[Mic] Starting live session + STT');
+      await TtsService.instance.setMode(TtsMode.live);
+      // fire-and-forget — setup timeout(10s)이 UI를 막지 않도록
+      TtsService.instance.startLiveSession(
+        systemInstruction: _buildLiveInstruction(),
+      ).then((_) {
+        final liveOk = TtsService.instance.liveSession?.isActive ?? false;
+        debugPrint('[Mic] Live session active: $liveOk');
+      });
+
+      // 2. STT 시작 (채팅에 텍스트 표시)
+      _partialWords = '';
+      setState(() => _isLiveListening = true);
+      if (_sttAvailable) {
+        _speech.listen(
+          onResult: (result) {
+            debugPrint('[STT] words="${result.recognizedWords}" final=${result.finalResult}');
+            _partialWords = result.recognizedWords;
+            if (result.finalResult && result.recognizedWords.isNotEmpty) {
+              _partialWords = '';
+              setState(() => _isLiveListening = false);
+              _sendSpeechText(result.recognizedWords);
+            }
+          },
+          localeId: TtsLocaleConfig.forLocale(context.locale.languageCode).ttsLanguage,
+        );
+      }
+    } finally {
+      _micToggling = false;
+    }
+  }
+
+  String _buildLiveInstruction() {
+    final session = ref.read(tarotSessionProvider);
+    final locale = context.locale.languageCode;
+    final langHint = locale != 'en' ? 'Respond in language code: $locale. ' : '';
+    return '${langHint}You are a tarot reader. Persona: ${session.persona.aiPrompt}';
+  }
+
+  void _sendSpeechText(String text) {
+    debugPrint('[STT] Sending: $text');
+    final session = ref.read(tarotSessionProvider);
+    if (session.phase == ConsultationPhase.question) {
+      session.handleUserQuestion(text);
+    } else {
+      session.sendMessage(text);
+    }
+    _scrollToBottom();
+  }
+
+  void _startAutoReading() {
+    final session = ref.read(tarotSessionProvider);
+    session.startAutoReading(
+      onReveal: (idx) {
+        if (mounted) setState(() => _revealedCards.add(idx));
+      },
+      onSpeak: (text) {
+        final completer = Completer<void>();
+        TtsService.instance.speak(
+          text,
+          id: 'auto-$text'.hashCode.toString(),
+          onComplete: () {
+            if (!completer.isCompleted) completer.complete();
+          },
+        );
+        // Safety timeout in case TTS doesn't fire completion
+        return completer.future.timeout(
+          const Duration(seconds: 60),
+          onTimeout: () {},
+        );
+      },
+    );
+  }
+
+  Widget _buildModeSelector(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ModeButton(
+              icon: Icons.volume_up_rounded,
+              label: 'reading.autoMode'.tr(),
+              sublabel: 'reading.autoModeDesc'.tr(),
+              onTap: () {
+                setState(() => _modeChosen = true);
+                ref.read(tarotSessionProvider).setReadingMode(ReadingMode.auto);
+                _startAutoReading();
+              },
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _ModeButton(
+              icon: Icons.touch_app_rounded,
+              label: 'reading.manualMode'.tr(),
+              sublabel: 'reading.manualModeDesc'.tr(),
+              onTap: () {
+                setState(() => _modeChosen = true);
+                ref.read(tarotSessionProvider).setReadingMode(ReadingMode.manual);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPulsingDots() {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -322,6 +575,58 @@ class _ConsultationScreenState extends ConsumerState<ConsultationScreen>
     _scrollController.dispose();
     _fanAnim.dispose();
     super.dispose();
+  }
+}
+
+class _ModeButton extends StatelessWidget {
+  const _ModeButton({
+    required this.icon,
+    required this.label,
+    required this.sublabel,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String sublabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: TaroColors.gold.withAlpha(60)),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              TaroColors.gold.withAlpha(15),
+              TaroColors.gold.withAlpha(5),
+            ],
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: TaroColors.gold, size: 28),
+            const SizedBox(height: 8),
+            Text(label, style: TextStyle(
+              color: TaroColors.gold,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            )),
+            const SizedBox(height: 4),
+            Text(sublabel, style: TextStyle(
+              color: TaroColors.gold.withAlpha(120),
+              fontSize: 11,
+            )),
+          ],
+        ),
+      ),
+    );
   }
 }
 
